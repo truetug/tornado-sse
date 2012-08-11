@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 # encoding: utf-8
+VERSION = [0, 1, 0]
+
 import tornado.web
 import tornado.escape
 import tornado.ioloop
