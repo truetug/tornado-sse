@@ -2,10 +2,20 @@
 # encoding: utf-8
 VERSION = [0, 1, 0]
 
+import os, sys
+sys.path.insert(0, '/Users/tug/Work/projects/cdnmail.ru/website')
+os.environ['DJANGO_SETTINGS_MODULE'] = 'settings'
+
 import tornado.web
 import tornado.escape
 import tornado.ioloop
 import tornado.web
+
+import django.conf
+import django.contrib.auth
+import django.core.handlers.wsgi
+import django.db
+import django.utils.importlib
 
 from tornado.options import define, options
 define('port', default=8888, help='Run on the given port', type=int)
@@ -51,25 +61,30 @@ class MySSEHandler(tornado.web.RequestHandler):
     _connections = [] # Yes, this list is declared here because it is used by the class methods
     _channels = {}
 
+    def initialize(self):
+        #self.set_header('Content-Type','text/event-stream; charset=utf-8')
+        self.set_header('Cache-Control','no-cache')
+        self.set_header('Connection','keep-alive')
+
     @tornado.web.asynchronous
     def get(self):
         cls = MySSEHandler
 
-        # Sending the standard headers
-        headers = self._generate_headers()
-        self.write(headers)
-        self.flush()
-
-        self.connection_id = time.time()
-        self.channel = self.get_argument('channel', CHANNEL)
-        logging.info('Incoming connection %s to channel "%s"' % (self.connection_id, self.channel))
-        if not self.channel in cls._channels:
-            cls.client.unsubscribe(cls._channels.keys())
-            cls._channels[self.channel] = set()
-            cls.client.subscribe(cls._channels.keys())
-            cls.client.listen(send_message)
-            logging.info('Channels: %s' % ', '.join(cls._channels.keys()))
-        cls._channels[self.channel].add(self)
+        self.user = self.get_current_user()
+        if not self.user:
+            self.set_status(403)
+            self.finish()
+        else:
+            self.connection_id = time.time()
+            self.channel = self.user
+            logging.info('Incoming connection %s to channel "%s"' % (self.connection_id, self.channel))
+            if not self.channel in cls._channels:
+                cls.client.unsubscribe(cls._channels.keys())
+                cls._channels[self.channel] = set()
+                cls.client.subscribe(cls._channels.keys())
+                cls.client.listen(send_message)
+                logging.info('Channels: %s' % ', '.join(cls._channels.keys()))
+            cls._channels[self.channel].add(self)
 
     def on_connection_close(self):
         cls = MySSEHandler
@@ -80,7 +95,6 @@ class MySSEHandler(tornado.web.RequestHandler):
             del cls._channels[self.channel]
             logging.info('Channels: %s' % ', '.join(cls._channels.keys()))
 
-    @tornado.web.asynchronous
     def on_message(self, event_id=None, data=None):
         if data:
             message = tornado.escape.utf8(
@@ -89,6 +103,22 @@ class MySSEHandler(tornado.web.RequestHandler):
             logging.info(message)
             self.write(message)
             self.flush()
+
+    def get_django_session(self):
+        if not hasattr(self, '_session'):
+            engine = django.utils.importlib.import_module(django.conf.settings.SESSION_ENGINE)
+            session_key = self.get_cookie(django.conf.settings.SESSION_COOKIE_NAME)
+            self._session = engine.SessionStore(session_key)
+        return self._session
+
+    def get_current_user(self):
+        """ get_user needs a django request object, but only looks at the session """
+        class Dummy: pass
+
+        django_request = Dummy()
+        django_request.session = self.get_django_session()
+        user = django.contrib.auth.get_user(django_request)
+        return user.username if user.is_authenticated() else None
 
     def send_message(self):
         logging.info('Sending new message')
@@ -117,6 +147,7 @@ class Application(tornado.web.Application):
             #template_path=os.path.join(os.path.dirname(__file__), "templates"),
             xsrf_cookies=True,
             autoescape=None,
+            #login_url='http://127.0.0.1:8000/login/',
         )
 
         tornado.web.Application.__init__(self, handlers, **settings)
