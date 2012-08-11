@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 # encoding: utf-8
+VERSION = [0, 1, 0]
+
 import tornado.web
 import tornado.escape
 import tornado.ioloop
@@ -9,7 +11,7 @@ from tornado.options import define, options
 define('port', default=8888, help='Run on the given port', type=int)
 
 import brukva
-channel = 'sse'
+CHANNEL = 'sse'
 
 import json
 from datetime import datetime
@@ -28,8 +30,9 @@ import hashlib
 def send_message(msg=None):
     #import pdb; pdb.set_trace()
     event, data = json.loads(msg.body)
-    logging.info('Sending %s "%s" to %s clients' % (event, data, len(MySSEHandler._live_connections)))
-    for x in MySSEHandler._live_connections:
+    clients = MySSEHandler._channels.get(msg.channel, [])
+    logging.info('Sending %s "%s" to %s clients' % (event, data, len(clients)))
+    for x in clients:
         x.on_message(None, data)
 
 
@@ -45,32 +48,43 @@ class MainHandler(tornado.web.RequestHandler):
 
 class MySSEHandler(tornado.web.RequestHandler):
     _closing_timeout = False
-    _live_connections = [] # Yes, this list is declared here because it is used by the class methods
+    _connections = [] # Yes, this list is declared here because it is used by the class methods
+    _channels = {}
 
     @tornado.web.asynchronous
     def get(self):
+        cls = MySSEHandler
+
         # Sending the standard headers
         headers = self._generate_headers()
-        self.write(headers); self.flush()
+        self.write(headers)
+        self.flush()
 
-        # Adding the current client instance to the live handlers pool
-        #self.connection_id = self.generate_id()
         self.connection_id = time.time()
-        MySSEHandler._live_connections.append(self)
-        logging.info('Incoming connection: %s' % self.connection_id)
-
-        # Calling the open event
-        #self.on_open()
+        self.channel = self.get_argument('channel', CHANNEL)
+        logging.info('Incoming connection %s to channel "%s"' % (self.connection_id, self.channel))
+        if not self.channel in cls._channels:
+            cls.client.unsubscribe(cls._channels.keys())
+            cls._channels[self.channel] = set()
+            cls.client.subscribe(cls._channels.keys())
+            cls.client.listen(send_message)
+            logging.info('Channels: %s' % ', '.join(cls._channels.keys()))
+        cls._channels[self.channel].add(self)
 
     def on_connection_close(self):
+        cls = MySSEHandler
         logging.info('Connection %s is closed' % self.connection_id)
-        del MySSEHandler._live_connections[self.connection_id]
+        if len(cls._channels[self.channel]) > 1:
+            cls._channels[self.channel].remove(self)
+        else:
+            del cls._channels[self.channel]
+            logging.info('Channels: %s' % ', '.join(cls._channels.keys()))
 
     @tornado.web.asynchronous
-    def on_message(self, id=None, data=None):
+    def on_message(self, event_id=None, data=None):
         if data:
             message = tornado.escape.utf8(
-                'id: %s\ndata: %s\n\n' % (event_id if event_id else '',  data)
+                '<p>id: %s\ndata: %s\n\n</p>' % (event_id if event_id else '',  data)
             )
             logging.info(message)
             self.write(message)
@@ -124,13 +138,11 @@ def main():
 
 if __name__ == '__main__':
     try:
-        redis = brukva.Client()
-        redis.connect()
-        redis.subscribe(channel)
-        redis.listen(send_message)
+        MySSEHandler.client = brukva.Client()
+        MySSEHandler.client.connect()
         main()
     except KeyboardInterrupt, e:
         pass
     finally:
-        redis.disconnect()
+        MySSEHandler.client.disconnect()
         logging.info('Shutdowned')
