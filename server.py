@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # encoding: utf-8
-VERSION = [0, 1, 0]
+VERSION = [0, 2, 0]
 
 import os, sys
 sys.path.insert(0, '/Users/tug/Work/projects/cdnmail.ru/website')
