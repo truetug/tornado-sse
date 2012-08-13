@@ -2,13 +2,20 @@
 import tornado.web
 import tornado.escape
 import tornado.ioloop
-import tornado.web
 
 import time
+import json
 import hashlib
 import logging
+
+import brukva
 from sse import Sse
 
+
+logger = logging.getLogger()
+
+
+CHANNEL = 'sse'
 
 SSE_HEADERS = (
     ('Content-Type','text/event-stream; charset=utf-8'),
@@ -21,6 +28,7 @@ class SSEHandler(tornado.web.RequestHandler):
     _closing_timeout = False
     _connections = []
     _channels = {}
+    _source = None
 
     def __init__(self, application, request, **kwargs):
         super(SSEHandler, self).__init__(application, request, **kwargs)
@@ -34,9 +42,14 @@ class SSEHandler(tornado.web.RequestHandler):
     def get_class(self):
         return self.__class__
 
-    def get_id(self):
-        logging.info('Generating unique connection ID')
-        return hashlib.md5('%s-%s-%s' % (
+    def set_source(self):
+        cls = self.__class__
+        if not cls._source:
+            cls._source = brukva.Client()
+            cls._source.connect()
+
+    def set_id(self):
+        self.connection_id = hashlib.md5('%s-%s-%s' % (
             self.request.connection.address[0],
             self.request.connection.address[1],
             time.time(),
@@ -52,54 +65,55 @@ class SSEHandler(tornado.web.RequestHandler):
         self.write(headers)
         self.flush()
 
-        self.connection_id = self.get_id()
-        self.on_open()
-
-    def on_open(self, *args, **kwargs):
-        """ Invoked for a new connection opened. """
-        cls = self.__class__
-        logger.debug('Incoming connection %s to channel "%s"' % (self.connection_id, self.channel))
-
+        self.set_id()
         self.channel = self.get_channel()
         if not self.channel:
             self.set_status(403)
             self.finish()
         else:
-            if not self.channel in cls._channels:
-                if cls._channels.keys():
-                    cls.client.unsubscribe(cls._channels.keys())
+            self.on_open()
 
-                cls._channels[self.channel] = set([self])
-                cls.client.subscribe(cls._channels.keys())
-                cls.client.listen(send_message)
-                logger.debug('Channels: %s' % ', '.join(cls._channels.keys()))
-            else:
-                cls._channels[self.channel].add(self)
+    def on_open(self, *args, **kwargs):
+        """ Invoked for a new connection opened. """
+        cls = self.__class__
+
+        logger.info('Incoming connection %s to channel "%s"' % (self.connection_id, self.channel))
+        self.set_source()
+
+        if not self.channel in cls._channels:
+            if cls._channels.keys():
+                cls._source.unsubscribe(cls._channels.keys())
+
+            cls._channels[self.channel] = [self]
+            cls._source.subscribe(cls._channels.keys())
+            cls._source.listen(cls.on_message)
+            logger.debug('Channels: %s' % ', '.join(cls._channels.keys()))
+        else:
+            cls._channels[self.channel].append(self)
 
     def on_close(self):
         """ Invoked when the connection for this instance is closed. """
         cls = self.__class__
 
-        logger.debug('Connection %s is closed' % self.connection_id)
+        logger.info('Connection %s is closed' % self.connection_id)
         if len(cls._channels[self.channel]) > 1:
             cls._channels[self.channel].remove(self)
         else:
             del cls._channels[self.channel]
             logger.debug('Channels: %s' % ', '.join(cls._channels.keys()))
 
-    def close(self):
+    def on_connection_close(self):
         """ Closes the connection for this instance """
+        logger.debug('Connection %s is closed, wait for 5 seconds' % self.connection_id)
         if not self._closed and not getattr(self, '_closing_timeout', None):
             self._closed = True
             self._closing_timeout = tornado.ioloop.IOLoop.instance().add_timeout(time.time() + 5, self._abort)
         else:
             tornado.ioloop.IOLoop.instance().remove_timeout(self._closing_timeout)
-            self.on_close() # Calling the closing event
-            self.stream.close()
 
     def _abort(self):
         """ Instantly aborts the connection by closing the socket """
-        self._closed = True
+        self.on_close() # Calling the closing event
         self.stream.close()
 
     @classmethod
@@ -124,7 +138,7 @@ class SSEHandler(tornado.web.RequestHandler):
 class DjangoSSEHandler(SSEHandler):
     @tornado.web.asynchronous
     def get_channel(self):
-        self.user = self.get_current_user()
+        user = self.get_current_user()
         return user.username if user else None
 
     def get_django_session(self):
