@@ -25,7 +25,6 @@ SSE_HEADERS = (
 
 
 class SSEHandler(tornado.web.RequestHandler):
-    _closing_timeout = False
     _connections = {}
     _channels = {}
     _stored_channels = []
