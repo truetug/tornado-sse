@@ -82,7 +82,7 @@ class SSEHandler(tornado.web.RequestHandler):
             cls._stored_channels = schs
 
     @tornado.web.asynchronous
-    def get(self):
+    def get(self, *args, **kwargs):
         # Sending the standard headers: open event
         headers = self._generate_headers()
         self.write(headers)
@@ -157,7 +157,7 @@ class DjangoSSEHandler(SSEHandler):
     @tornado.web.asynchronous
     def get_channels(self):
         user = self.get_current_user()
-        return [user.username] if user else None
+        return ['all', user.username] if user else None
 
     def get_django_session(self):
         """ Gets django session """
