@@ -26,8 +26,9 @@ SSE_HEADERS = (
 
 class SSEHandler(tornado.web.RequestHandler):
     _closing_timeout = False
-    _connections = []
+    _connections = {}
     _channels = {}
+    _stored_channels = []
     _source = None
 
     def __init__(self, application, request, **kwargs):
@@ -60,6 +61,26 @@ class SSEHandler(tornado.web.RequestHandler):
         result = [x.strip() for x in result.split(',') if x]
         return result
 
+    def subscribe(self):
+        cls = self.__class__
+        schs = set(cls._channels.keys())
+        uchs = set(cls._stored_channels)
+
+        if schs != uchs:
+            # Unsubscribe from all channels
+            chs = uchs.difference(schs)
+            if chs:
+                cls._source.unsubscribe(chs)
+
+            # Subscribe to new channels
+            chs = schs.difference(uchs)
+            if chs:
+                cls._source.subscribe(chs)
+                cls._source.listen(cls.send_message)
+
+            logger.debug('Channels: %s' % ', '.join(schs))
+            cls._stored_channels = schs
+
     @tornado.web.asynchronous
     def get(self):
         # Sending the standard headers: open event
@@ -80,52 +101,40 @@ class SSEHandler(tornado.web.RequestHandler):
         cls = self.__class__
 
         logger.info('Incoming connection %s to channels "%s"' % (self.connection_id, ', '.join(self.channels)))
+        cls._connections[self.connection_id] = self
         self.set_source()
 
-        unbinded_channels = (x for x in self.channels if x not in cls._channels)
+        # Bind channels
+        for channel in self.channels:
+            if channel not in cls._channels:
+                cls._channels[channel] = []
 
-        if unbinded_channels:
-            if cls._channels.keys():
-                cls._source.unsubscribe(cls._channels.keys())
+            cls._channels[channel].append(self.connection_id)
 
-            for channel in unbinded_channels:
-                cls._channels[channel] = [self]
-
-            cls._source.subscribe(cls._channels.keys())
-            cls._source.listen(cls.on_message)
-            logger.debug('Channels: %s' % ', '.join(cls._channels.keys()))
-        else:
-            for channel in self.channels:
-                cls._channels[channel].append(self)
+        self.subscribe()
 
     def on_close(self):
         """ Invoked when the connection for this instance is closed. """
         cls = self.__class__
 
         logger.info('Connection %s is closed' % self.connection_id)
+        del cls._connections[self.connection_id]
+
         for channel in self.channels:
             if len(cls._channels[channel]) > 1:
-                cls._channels[channel].remove(self)
+                cls._channels[channel].remove(self.connection_id)
             else:
                 del cls._channels[channel]
-                logger.debug('Channels: %s' % ', '.join(cls._channels.keys()))
+
+        self.subscribe()
 
     def on_connection_close(self):
         """ Closes the connection for this instance """
-        logger.debug('Connection %s is closed, wait for 5 seconds' % self.connection_id)
-        if not self._closed and not getattr(self, '_closing_timeout', None):
-            self._closed = True
-            self._closing_timeout = tornado.ioloop.IOLoop.instance().add_timeout(time.time() + 5, self._abort)
-        else:
-            tornado.ioloop.IOLoop.instance().remove_timeout(self._closing_timeout)
-
-    def _abort(self):
-        """ Instantly aborts the connection by closing the socket """
-        self.on_close() # Calling the closing event
+        self.on_close()
         self.stream.close()
 
     @classmethod
-    def on_message(cls, msg):
+    def send_message(cls, msg):
         """ Sends a message to all live connections """
         event, data = json.loads(msg.body)
 
@@ -134,11 +143,12 @@ class SSEHandler(tornado.web.RequestHandler):
         message = ''.join(sse)
 
         clients = cls._channels.get(msg.channel, [])
-        logger.debug('Sending %s "%s" to %s clients' % (event, data, len(clients)))
-        for client in clients:
-            client.write_message(message)
+        logger.debug('Sending %s "%s" to channel %s for %s clients' % (event, data, msg.channel, len(clients)))
+        for client_id in clients:
+            client = cls._connections[client_id]
+            client.on_message(message)
 
-    def write_message(self, message):
+    def on_message(self, message):
         self.write(message)
         self.flush()
 
