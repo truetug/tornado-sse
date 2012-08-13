@@ -55,8 +55,10 @@ class SSEHandler(tornado.web.RequestHandler):
             time.time(),
         )).hexdigest()
 
-    def get_channel(self):
-        return self.get_argument('channel', CHANNEL)
+    def get_channels(self):
+        result = self.get_argument('channels', CHANNEL)
+        result = [x.strip() for x in result.split(',') if x]
+        return result
 
     @tornado.web.asynchronous
     def get(self):
@@ -66,8 +68,8 @@ class SSEHandler(tornado.web.RequestHandler):
         self.flush()
 
         self.set_id()
-        self.channel = self.get_channel()
-        if not self.channel:
+        self.channels = self.get_channels()
+        if not self.channels:
             self.set_status(403)
             self.finish()
         else:
@@ -77,30 +79,36 @@ class SSEHandler(tornado.web.RequestHandler):
         """ Invoked for a new connection opened. """
         cls = self.__class__
 
-        logger.info('Incoming connection %s to channel "%s"' % (self.connection_id, self.channel))
+        logger.info('Incoming connection %s to channels "%s"' % (self.connection_id, ', '.join(self.channels)))
         self.set_source()
 
-        if not self.channel in cls._channels:
+        unbinded_channels = (x for x in self.channels if x not in cls._channels)
+
+        if unbinded_channels:
             if cls._channels.keys():
                 cls._source.unsubscribe(cls._channels.keys())
 
-            cls._channels[self.channel] = [self]
+            for channel in unbinded_channels:
+                cls._channels[channel] = [self]
+
             cls._source.subscribe(cls._channels.keys())
             cls._source.listen(cls.on_message)
             logger.debug('Channels: %s' % ', '.join(cls._channels.keys()))
         else:
-            cls._channels[self.channel].append(self)
+            for channel in self.channels:
+                cls._channels[channel].append(self)
 
     def on_close(self):
         """ Invoked when the connection for this instance is closed. """
         cls = self.__class__
 
         logger.info('Connection %s is closed' % self.connection_id)
-        if len(cls._channels[self.channel]) > 1:
-            cls._channels[self.channel].remove(self)
-        else:
-            del cls._channels[self.channel]
-            logger.debug('Channels: %s' % ', '.join(cls._channels.keys()))
+        for channel in self.channels:
+            if len(cls._channels[channel]) > 1:
+                cls._channels[channel].remove(self)
+            else:
+                del cls._channels[channel]
+                logger.debug('Channels: %s' % ', '.join(cls._channels.keys()))
 
     def on_connection_close(self):
         """ Closes the connection for this instance """
@@ -137,9 +145,9 @@ class SSEHandler(tornado.web.RequestHandler):
 
 class DjangoSSEHandler(SSEHandler):
     @tornado.web.asynchronous
-    def get_channel(self):
+    def get_channels(self):
         user = self.get_current_user()
-        return user.username if user else None
+        return [user.username] if user else None
 
     def get_django_session(self):
         """ Gets django session """
