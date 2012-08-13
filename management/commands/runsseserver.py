@@ -1,53 +1,70 @@
 # encoding: utf-8
+import tornado.web
+import tornado.escape
+import tornado.ioloop
+
 from django.core.management.base import BaseCommand, CommandError
+from django.conf import settings
+from django import get_version
 from optparse import make_option
 
 import os, sys
 
+import logging
+formatter = logging.Formatter(fmt='%(asctime)s:%(levelname)s %(message)s', datefmt='%Y.%m.%d %H:%M:%S')
+handler = logging.StreamHandler()
+handler.setFormatter(formatter)
+
+logger = logging.getLogger()
+logger.addHandler(handler)
+
+
 ### TORNADO ###
-from django_tse.server import main
+from tornado_sse.handlers import DjangoSSEHandler
+
+class Application(tornado.web.Application):
+    def __init__(self):
+        handlers = [(r'/', DjangoSSEHandler)]
+        tornado.web.Application.__init__(self, handlers)
+
 
 ### DJANGO ###
 class Command(BaseCommand):
-    option_list = BaseCommand.option_list + ()
-    help = 'Starts a Django Tornado-Sent-Events Server'
+    option_list = BaseCommand.option_list + (
+        make_option(
+            '--address',
+            dest = 'address',
+            default = '127.0.0.1',
+            help = 'Bind to given address',
+        ),
+        make_option(
+            '--port',
+            dest = 'port',
+            default = '8888',
+            help = 'Run on the given port',
+        ),
+        make_option(
+            '--debug',
+            action = 'store_true',
+            dest = 'debug',
+            default = False,
+            help = 'Verbose output',
+        ),
+
+    )
+    help = 'Starts a Tornado EventSource Server'
     args = '[optional port number, or ipaddr:port]'
 
-    def handle(self, addrport='', *args, **options):
-        import django
+    def handle(self, *args, **options):
+        try:
+            logger.info('Come along tornado on %s:%s...' % (options['address'], options['port']))
 
-        sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 0)
-        sys.stderr = os.fdopen(sys.stderr.fileno(), 'w', 0)
+            application = Application()
+            application.listen(options['port'], options['address'])
+            application.loop = tornado.ioloop.IOLoop.instance()
 
-        if args:
-            raise CommandError('Usage is runserver %s' % self.args)
-        if not addrport:
-            addr = ''
-            port = '8888'
-        else:
-            try:
-                addr, port = addrport.split(':')
-            except ValueError:
-                addr, port = '', addrport
-        if not addr:
-            addr = '127.0.0.1'
-
-        if not port.isdigit():
-            raise CommandError("%r is not a valid port number." % port)
-
-        quit_command = (sys.platform == 'win32') and 'CTRL-BREAK' or 'CONTROL-C'
-
-        from django.conf import settings
-        print 'Validating models...'
-        self.validate(display_num_errors=True)
-        print
-        print 'Django version %s, using settings %r' % (django.get_version(), settings.SETTINGS_MODULE)
-        print 'Server is running at http://%s:%s/' % (addr, port)
-        print 'Quit the server with %s.' % quit_command
-        #application = WSGIHandler()
-        #container = wsgi.WSGIContainer(application)
-        #http_server = httpserver.HTTPServer(container)
-#        http_server = httpserver.HTTPServer(application)
-#        http_server.listen(int(port), address=addr)
-#        ioloop.IOLoop.instance().start()
-        main()
+            application.loop.start()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            logger.info('Shutdowned')
