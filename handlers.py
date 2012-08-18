@@ -17,10 +17,12 @@ logger = logging.getLogger()
 
 CHANNEL = 'sse'
 
+
 SSE_HEADERS = (
     ('Content-Type','text/event-stream; charset=utf-8'),
     ('Cache-Control','no-cache'),
     ('Connection','keep-alive'),
+    ('Access-Control-Allow-Origin', '*'),
 )
 
 
@@ -142,7 +144,7 @@ class SSEHandler(tornado.web.RequestHandler):
         message = ''.join(sse)
 
         clients = cls._channels.get(msg.channel, [])
-        logger.debug('Sending %s "%s" to channel %s for %s clients' % (event, data, msg.channel, len(clients)))
+        logger.info('Sending %s "%s" to channel %s for %s clients' % (event, data, msg.channel, len(clients)))
         for client_id in clients:
             client = cls._connections[client_id]
             client.on_message(message)
