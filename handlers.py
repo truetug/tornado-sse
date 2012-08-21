@@ -1,4 +1,5 @@
 # encoding: utf-8
+import uuid
 import tornado.web
 import tornado.escape
 import tornado.ioloop
@@ -26,11 +27,17 @@ SSE_HEADERS = (
 )
 
 
+class SSEMixin(object):
+    pass
+
+
 class SSEHandler(tornado.web.RequestHandler):
     _connections = {}
     _channels = {}
     _stored_channels = []
     _source = None
+    _cache = []
+    _cache_size = 200
 
     def __init__(self, application, request, **kwargs):
         super(SSEHandler, self).__init__(application, request, **kwargs)
@@ -114,6 +121,18 @@ class SSEHandler(tornado.web.RequestHandler):
 
         self.subscribe()
 
+        event_id = self.request.headers.get('Last-Event-ID', None)
+        if event_id:
+            logging.info('Client %s last event ID: %s' % (self.connection_id, event_id))
+            i = 0
+            for i, msg in enumerate(cls._cache):
+                if msg['id'] == event_id: break
+
+            for msg in cls._cache[i:]:
+                if msg['channel'] in self.channels:
+                    self.on_message(msg['body'])
+
+
     def on_close(self):
         """ Invoked when the connection for this instance is closed. """
         cls = self.__class__
@@ -137,11 +156,21 @@ class SSEHandler(tornado.web.RequestHandler):
     @classmethod
     def send_message(cls, msg):
         """ Sends a message to all live connections """
+        id = str(uuid.uuid4())
         event, data = json.loads(msg.body)
 
         sse = Sse()
+        sse.set_event_id(id)
         sse.add_message(event, data)
-        message = ''.join(sse)
+
+        message =  ''.join(sse)
+        cls._cache.append({
+            'id': id,
+            'channel': msg.channel,
+            'body': ''.join(sse),
+        })
+        if len(cls._cache) > cls._cache_size:
+            cls._cache = cls._cache[-cls._cache_size:]
 
         clients = cls._channels.get(msg.channel, [])
         logger.info('Sending %s "%s" to channel %s for %s clients' % (event, data, msg.channel, len(clients)))
