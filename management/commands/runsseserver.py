@@ -11,12 +11,12 @@ from optparse import make_option
 import os, sys
 
 import logging
-formatter = logging.Formatter(fmt='%(asctime)s:%(levelname)s %(message)s', datefmt='%Y.%m.%d %H:%M:%S')
-handler = logging.StreamHandler()
-handler.setFormatter(formatter)
+#formatter = logging.Formatter(fmt='%(asctime)s:%(levelname)s %(message)s', datefmt='%Y.%m.%d %H:%M:%S')
+#handler = logging.StreamHandler()
+#handler.setFormatter(formatter)
 
-logger = logging.getLogger()
-logger.addHandler(handler)
+logger = logging.getLogger('django')
+#logger.addHandler(handler)
 
 
 ### TORNADO ###
@@ -57,7 +57,13 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         try:
+            if options['debug']:
+                logger.setLevel(logging.DEBUG)
+
             logger.info('Come along tornado on %s:%s...' % (options['address'], options['port']))
+
+            #settings.REDIS_SSEQUEUE_CONNECTION_SETTINGS['location']
+            #settings.REDIS_SSEQUEUE_CONNECTION_SETTINGS['db']
 
             application = Application()
             application.listen(options['port'], options['address'])
