@@ -11,7 +11,7 @@ except ImportError:
 
 setup (
     name='tornado-sse',
-    version='0.5.0',
+    version='0.6.0',
     author='Sergey Trofimov',
     author_email='truetug@gmail.com',
     url='https://github.com/truetug/tornado-sse',
