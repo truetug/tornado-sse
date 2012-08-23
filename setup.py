@@ -20,10 +20,7 @@ setup (
     packages=['tornado_sse',],
     zip_safe=False,
     requires=[],
-    install_requires=[
-        'tornado >= 2',
-        'brukva',
-    ],
+    install_requires=[],
     entry_points={
         'console_scripts': [
             'tornado_sse = tornado_sse.server:main',
