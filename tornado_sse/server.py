@@ -12,7 +12,7 @@ handler.setFormatter(formatter)
 logger = logging.getLogger()
 logger.addHandler(handler)
 
-from handlers import SSEHandler
+from tornado_sse.handlers import SSEHandler
 
 
 class Application(tornado.web.Application):
