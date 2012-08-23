@@ -2,7 +2,7 @@
 tornado-sse
 ===========
 
-tornado-sse use `tornado <http://www.tornadoweb.org/>`_ and `brukva <https://github.com/kmerenkov/brukva>`_ for multichannel `Server-Sent Event <http://www.html5rocks.com/en/tutorials/eventsource/basics/>`_ server. Additional it provides such thins like: eventsource polyfill, we prefer `jQuery.eventsource <https://github.com/rwldrn/jquery.eventsource/>`_; javascript handler for delegate SSE to jQuery events; Django management command and special Django handler.
+tornado-sse use `tornado <http://www.tornadoweb.org/>`_ and `brukva <https://github.com/evilkost/brukva>`_ for multichannel `Server-Sent Event <http://www.html5rocks.com/en/tutorials/eventsource/basics/>`_ server. Additional it provides such thins like: eventsource polyfill, we prefer `jQuery.eventsource <https://github.com/rwldrn/jquery.eventsource/>`_; javascript handler for delegate SSE to jQuery events; Django management command and special Django handler.
 
 Installation
 ============
@@ -16,7 +16,7 @@ Standalone
 
 Start server::
 
-    $ tornado_sse [--address 127.0.0.1] [--port 8888] [--debug]
+    $ tornado_sse [--address=127.0.0.1] [--port=8888] [--debug]
 
 Then place static files to serve directory, or just map Nginx location to tornado_sse/static directory.
 
