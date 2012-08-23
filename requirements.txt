@@ -1,0 +1,5 @@
+git+git://github.com/evilkost/brukva.git
+#django-sse>=0.4
+#redis>=2.6.2
+sse>=1.0
+tornado>=2.3
