@@ -16,7 +16,7 @@ setup (
     author_email='truetug@gmail.com',
     url='https://github.com/truetug/tornado-sse',
     description='Eventsource server on tornado: django support, channels, last-event-id, etc',
-    long_description=open('README.txt', 'r').read(),
+    long_description=open('README.rst', 'r').read(),
     packages=['tornado_sse',],
     zip_safe=False,
     requires=[],
